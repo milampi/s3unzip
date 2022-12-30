@@ -1,0 +1,9 @@
+.mypy_cache
+.pylint_private_dict
+.pylintrc
+__pycache__
+MUISTIIPANOT.md
+muistiinpanot_zip.md
+old
+docs
+testing
