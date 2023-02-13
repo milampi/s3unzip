@@ -6,4 +6,8 @@ MUISTIIPANOT.md
 muistiinpanot_zip.md
 old
 docs
-testing
+test_local
+build/
+dist/
+s3unzip.egg-info/
+

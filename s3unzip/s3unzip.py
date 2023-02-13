@@ -23,6 +23,7 @@ import struct
 import fnmatch
 from typing import Any
 import datetime
+import errno
 
 import boto3
 import stream_unzip
@@ -334,8 +335,9 @@ def unzip_file_at_pos(s3_file_name: str, out_file_name: str, pos: int, client: A
 
 
 def find_central_dir(s3_stream: io.BufferedIOBase) -> int:
-    """Tries to find the beginning of the Central Directory
-
+    """Tries to find the beginning of the Central Directory of a zip file.
+       Central Directory is at the end of the zip file.
+       If the zip file has been appended, there might be multiple ones. Only the last one is valid.
 
     Parameters
     ----------
@@ -350,26 +352,40 @@ def find_central_dir(s3_stream: io.BufferedIOBase) -> int:
 
     # Try to find End of Central Directory Record
     # Seek from the end of file the maximum length of comment 65 kB and End of Central Directory Record 18 B + header 4 B
-    s3_stream.seek(-65536 - 18 - 4, 2)
-    # TODO Sanity check. Did the seek work. Was there enough bytes
+    try:
+        s3_stream.seek(-65536 - 18 - 4, io.SEEK_END) # Start searching -65558 bytes from the end of file.
+    except OSError as e:
+            if e.errno == errno.EINVAL: # "Invalid argument" means file was less than 65558 long
+                s3_stream.seek(0, io.SEEK_SET) # The file is very small. Start searching from beginning of file
+            else:
+                raise
+
+    # Read the maximum size of directory block
     byte_block = s3_stream.read(65536 + 18 + 4)
-    # TODO Sanity check. Did read work
+
+    # Find from the binary block the marker for Central Directory
     addr = byte_block.find(b'\x50\x4b\x05\x06')
-    # TODO Sanity check. Did the find work
+    if addr == -1:
+        Exception('No Central Directory Record found') 
+
+    # Unpack the record for later use
     fields = struct.unpack('<HHHHIIH', byte_block[addr+4:addr+4+18])
     # TODO Sanity check. Check if it just a random number sequence (Is there a CD at the end of the pointed field)
+
     cd_pos: int = fields[5]
+    # TODO Sanity check. Check if this CDR is the actually last one, or if there is one more after this.
+    # TODO Check if the information about multiple CDR when zip has been appended is correct
 
     return cd_pos
 
 
 def read_central_dir(s3_stream: io.BufferedIOBase) -> dict:
-    """Reads and parses the central directory
+    """Reads and parses the central directory of a zip file
 
     Parameters
     ----------
     s3_stream : io.BufferedIOBase
-        filestream where the end of central directory record is read from
+        filestream where the central directory record is read from
 
     Returns
     -------

@@ -9,3 +9,7 @@ dist: s3unzip/s3unzip.py
 clean: 
 	@rm -rf build dist *.egg-info
 
+test: export PYTHONDONTWRITEBYTECODE = 1
+test:
+	py.test3 -p no:cacheprovider -v test_units.py
+
