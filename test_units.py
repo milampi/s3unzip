@@ -8,6 +8,6 @@ import pytest
 from s3unzip import *
 
 def test_find_central_dir():
-    with open('test_data//test1.zip','rb') as f:
-       assert find_central_dir(f) == 67
+    with open('test_data/test1.zip','rb') as f:
+        assert find_central_dir(f) == 67
 

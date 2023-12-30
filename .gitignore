@@ -3,6 +3,7 @@
 .pylintrc
 __pycache__
 MUISTIIPANOT.md
+TODO.md
 muistiinpanot_zip.md
 old
 docs

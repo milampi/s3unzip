@@ -444,9 +444,14 @@ def main() -> None:
     # -P
     args = parser.parse_args()
 
-    # Reads in config used by s3cmd and uses the login credentials from it
+    # Reads in config used by s3cmd and uses the login credentials from it.
+    # s3cmd config is usually in file ~/.s3cfg
     config = configparser.ConfigParser()
-    config.read(args.env) # TODO react to file not found
+    try:
+        with open(args.env) as f: config.read_file(f)
+    except FileNotFoundError as e:
+        print(e)
+        exit(-1)
 
     # Checks whether to use http or https connection
     if config['default']['use_https'] is True:
