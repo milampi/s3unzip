@@ -466,10 +466,14 @@ def main() -> None:
     client_main = session_main.client('s3', endpoint_url=url)
 
     # Read the central directory of the s3 file
-    with smart_open.open(args.zipfile, 'rb', transport_params=dict(client=client_main)) as f_main:
-        print(f'Archive:  {args.zipfile}')
-        # Read the full central directory
-        files_in_zip_main = read_central_dir(f_main)
+    try:
+        with smart_open.open(args.zipfile, 'rb', transport_params=dict(client=client_main)) as f_main:
+            print(f'Archive:  {args.zipfile}')
+            # Read the full central directory
+            files_in_zip_main = read_central_dir(f_main)
+    except FileNotFoundError as e:
+        print(e)
+        exit(-1)
 
     # List files in zip and quit
     if args.list is True:
