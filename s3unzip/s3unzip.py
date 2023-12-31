@@ -471,7 +471,7 @@ def main() -> None:
             print(f'Archive:  {args.zipfile}')
             # Read the full central directory
             files_in_zip_main = read_central_dir(f_main)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, OSError) as e:
         print(e)
         exit(-1)
 
