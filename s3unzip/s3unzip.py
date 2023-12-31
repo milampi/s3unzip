@@ -26,6 +26,7 @@ import datetime
 import errno
 
 import boto3
+import botocore # Needed for type checking
 import stream_unzip
 import smart_open
 import chardet
@@ -354,11 +355,11 @@ def find_central_dir(s3_stream: io.BufferedIOBase) -> int:
     # Seek from the end of file the maximum length of comment 65 kB and End of Central Directory Record 18 B + header 4 B
     try:
         s3_stream.seek(-65536 - 18 - 4, io.SEEK_END) # Start searching -65558 bytes from the end of file.
-    except OSError as e:
-            if e.errno == errno.EINVAL: # "Invalid argument" means file was less than 65558 long
-                s3_stream.seek(0, io.SEEK_SET) # The file is very small. Start searching from beginning of file
-            else:
-                raise
+    except OSError as err_in_seek:
+        if err_in_seek.errno == errno.EINVAL: # "Invalid argument" means file was less than 65558 long
+            s3_stream.seek(0, io.SEEK_SET) # The file is very small. Start searching from beginning of file
+        else:
+            raise
 
     # Read the maximum size of directory block
     byte_block = s3_stream.read(65536 + 18 + 4)
@@ -366,7 +367,7 @@ def find_central_dir(s3_stream: io.BufferedIOBase) -> int:
     # Find from the binary block the marker for Central Directory
     addr = byte_block.find(b'\x50\x4b\x05\x06')
     if addr == -1:
-        Exception('No Central Directory Record found') 
+        Exception('No Central Directory Record found')
 
     # Unpack the record for later use
     fields = struct.unpack('<HHHHIIH', byte_block[addr+4:addr+4+18])
@@ -423,6 +424,63 @@ def read_central_dir(s3_stream: io.BufferedIOBase) -> dict:
     return files_in_zip
 
 
+def create_tranport_client(config: configparser.ConfigParser) -> botocore.client.BaseClient:
+    """Return a transportation client object to define how to connect to the .zip file
+
+    Parameters
+    ----------
+    config : configparser.ConfigParser
+        S3 credientials and configuration
+
+    Returns
+    -------
+    botocore.client.BaseClient
+        Transportation client information for .zip file
+    """
+
+    # Checks whether to use http or https connection
+    if config['default']['use_https'] is True:
+        url = f'https://{config["default"]["host_base"]}'
+    else:
+        url = f'http://{config["default"]["host_base"]}'
+
+    # Build a session that connects to the right s3 bucket
+    session = boto3.Session(region_name=config['default']['bucket_location'],
+                                 aws_access_key_id=config['default']['access_key'],
+                                 aws_secret_access_key=config['default']['secret_key'])
+    client = session.client('s3', endpoint_url=url)
+
+    return client
+
+
+def list_files(files_in_zip: dict) -> str:
+    """Pretty prints to a string the central directory of a zip file
+
+    Parameters
+    ----------
+    files_in_zip : unknown
+        List of files
+
+    Returns
+    -------
+    str
+        A string representation of all files in zip
+    """
+
+    lines = []
+    file_size_sum = 0
+
+    lines.append('  Length      Date    Time    Name')
+    lines.append('---------  ---------- -----   ----')
+    for file_name, fields in files_in_zip.items():
+        file_size_sum += fields["length"]
+        lines.append(f'{fields["length"]:9d}  {fields["date_time"].isoformat(sep=" ", timespec="minutes")}   {file_name}')
+    lines.append('---------                     ----')
+    lines.append(f'{file_size_sum:9d}                     {len(files_in_zip)} files')
+
+    return "\n".join(lines)
+
+
 def main() -> None:
     """Main routine to run from commandline
 
@@ -448,43 +506,28 @@ def main() -> None:
     # s3cmd config is usually in file ~/.s3cfg
     config = configparser.ConfigParser()
     try:
-        with open(args.env) as f: config.read_file(f)
+        with open(args.env) as f:
+            config.read_file(f)
     except FileNotFoundError as e:
         print(e)
         exit(-1)
 
-    # Checks whether to use http or https connection
-    if config['default']['use_https'] is True:
-        url = f'https://{config["default"]["host_base"]}'
-    else:
-        url = f'http://{config["default"]["host_base"]}'
-
-    # Build a session that connects to the right s3 bucket
-    session_main = boto3.Session(region_name=config['default']['bucket_location'],
-                                 aws_access_key_id=config['default']['access_key'],
-                                 aws_secret_access_key=config['default']['secret_key'])
-    client_main = session_main.client('s3', endpoint_url=url)
+    # Create a transportation client object to define how to connect to the .zip file
+    client = create_tranport_client(config)
 
     # Read the central directory of the s3 file
     try:
-        with smart_open.open(args.zipfile, 'rb', transport_params=dict(client=client_main)) as f_main:
+        with smart_open.open(args.zipfile, 'rb', transport_params=dict(client=client)) as f:
             print(f'Archive:  {args.zipfile}')
             # Read the full central directory
-            files_in_zip_main = read_central_dir(f_main)
+            files_in_zip_main = read_central_dir(f)
     except (FileNotFoundError, OSError) as e:
         print(e)
         exit(-1)
 
     # List files in zip and quit
     if args.list is True:
-        file_size_sum = 0
-        print('  Length      Date    Time    Name')
-        print('---------  ---------- -----   ----')
-        for file_name_main, fields_main in files_in_zip_main.items():
-            file_size_sum += fields_main["length"]
-            print(f'{fields_main["length"]:9d}  {fields_main["date_time"].isoformat(sep=" ", timespec="minutes")}   {file_name_main}')
-        print('---------                     ----')
-        print(f'{file_size_sum:9d}                     {len(files_in_zip_main)} files')
+        print(list_files(files_in_zip_main))
         exit(0)
 
     # Get files that match
@@ -497,7 +540,7 @@ def main() -> None:
                 # TODO parse & prevent paths to only go downwards from where we are now
                 if len(path) > 0:
                     os.makedirs(path, exist_ok=True) # Create path for file if needed
-                unzip_file_at_pos(args.zipfile, file_name_main, position, client_main)
+                unzip_file_at_pos(args.zipfile, file_name_main, position, client)
 
 # Operations done only if we are run on the commandline
 if __name__ == '__main__':
