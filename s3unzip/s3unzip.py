@@ -430,7 +430,7 @@ def create_tranport_client(config: configparser.ConfigParser) -> botocore.client
     Parameters
     ----------
     config : configparser.ConfigParser
-        S3 credientials and configuration
+        S3 credentials and configuration
 
     Returns
     -------
@@ -446,19 +446,21 @@ def create_tranport_client(config: configparser.ConfigParser) -> botocore.client
 
     # Build a session that connects to the right s3 bucket
     session = boto3.Session(region_name=config['default']['bucket_location'],
-                                 aws_access_key_id=config['default']['access_key'],
-                                 aws_secret_access_key=config['default']['secret_key'])
+                            aws_access_key_id=config['default']['access_key'],
+                            aws_secret_access_key=config['default']['secret_key'])
     client = session.client('s3', endpoint_url=url)
 
     return client
 
 
-def list_files(files_in_zip: dict) -> str:
+def list_files(archive_name: str, files_in_zip: dict) -> str:
     """Pretty prints to a string the central directory of a zip file
 
     Parameters
     ----------
-    files_in_zip : unknown
+    archive_name : str
+        Name of the zip file
+    files_in_zip : dict
         List of files
 
     Returns
@@ -470,6 +472,7 @@ def list_files(files_in_zip: dict) -> str:
     lines = []
     file_size_sum = 0
 
+    lines.append(f'Archive:  {archive_name}')
     lines.append('  Length      Date    Time    Name')
     lines.append('---------  ---------- -----   ----')
     for file_name, fields in files_in_zip.items():
@@ -502,23 +505,26 @@ def main() -> None:
     # -P
     args = parser.parse_args()
 
-    # Reads in config used by s3cmd and uses the login credentials from it.
-    # s3cmd config is usually in file ~/.s3cfg
-    config = configparser.ConfigParser()
-    try:
-        with open(args.env) as f:
-            config.read_file(f)
-    except FileNotFoundError as e:
-        print(e)
-        exit(-1)
+    # If we are reading a s3 based file. Create a transportation client for it.
+    # If we are not, just just connect directly
+    client = None
+    if args.zipfile.startswith('s3://'):
+        # Reads in config used by s3cmd and uses the login credentials from it.
+        # s3cmd config is usually in file ~/.s3cfg
+        config = configparser.ConfigParser()
+        try:
+            with open(args.env) as f:
+                config.read_file(f)
+        except FileNotFoundError as e:
+            print(e)
+            exit(-1)
 
-    # Create a transportation client object to define how to connect to the .zip file
-    client = create_tranport_client(config)
+        # Create a transportation client object to define how to connect to the .zip file
+        client = create_tranport_client(config)
 
     # Read the central directory of the s3 file
     try:
         with smart_open.open(args.zipfile, 'rb', transport_params=dict(client=client)) as f:
-            print(f'Archive:  {args.zipfile}')
             # Read the full central directory
             files_in_zip_main = read_central_dir(f)
     except (FileNotFoundError, OSError) as e:
@@ -527,7 +533,7 @@ def main() -> None:
 
     # List files in zip and quit
     if args.list is True:
-        print(list_files(files_in_zip_main))
+        print(list_files(args.zipfile, files_in_zip_main))
         exit(0)
 
     # Get files that match

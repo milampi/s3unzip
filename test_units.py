@@ -15,14 +15,12 @@ def test_find_central_dir():
 
 def test_list_files():
     config = configparser.ConfigParser()
-    # TODO convert to work without external dependency of .s3cfg file
-    with open(f'{os.getenv("HOME")}/.s3cfg') as f: config.read_file(f)
-    client = create_tranport_client(config)
 
-    with smart_open.open('test_data/test1.zip', 'rb', transport_params=dict(client=client)) as f:
+    with smart_open.open('test_data/test1.zip', 'rb', transport_params=dict(client=None)) as f:
         files_in_zip_main = read_central_dir(f)
 
-    assert list_files(files_in_zip_main) == '''  Length      Date    Time    Name
+    assert list_files('test_data/test1.zip', files_in_zip_main) == '''Archive:  test_data/test1.zip
+  Length      Date    Time    Name
 ---------  ---------- -----   ----
         0  2023-12-31 12:51   empty.txt
 ---------                     ----
