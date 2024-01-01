@@ -21,7 +21,7 @@ import argparse
 import configparser
 import struct
 import fnmatch
-from typing import Any
+from typing import Any, Iterable
 import datetime
 import errno
 
@@ -131,6 +131,7 @@ def _extra_field_uid_gid(hbytes: bytes) -> dict:
     fields['gid'] = int.from_bytes(hbytes[0:gid_len], byteorder='little')
 
     return fields
+
 
 def parse_extra_fields(extra_bytes: bytes, in_cd: bool = True) -> dict:
     """Parses extra fields in a record
@@ -424,7 +425,7 @@ def read_central_dir(s3_stream: io.BufferedIOBase) -> dict:
     return files_in_zip
 
 
-def create_tranport_client(config: configparser.ConfigParser) -> botocore.client.BaseClient:
+def create_transport_client(config: configparser.ConfigParser) -> botocore.client.BaseClient:
     """Return a transportation client object to define how to connect to the .zip file
 
     Parameters
@@ -452,9 +453,8 @@ def create_tranport_client(config: configparser.ConfigParser) -> botocore.client
 
     return client
 
-
-def list_files(archive_name: str, files_in_zip: dict) -> str:
-    """Pretty prints to a string the central directory of a zip file
+def pretty_print_files(archive_name: str, files_in_zip: dict) -> Iterable[str]:
+    """A generator that pretty prints the central directory of a zip file line by line
 
     Parameters
     ----------
@@ -465,23 +465,22 @@ def list_files(archive_name: str, files_in_zip: dict) -> str:
 
     Returns
     -------
-    str
-        A string representation of all files in zip
+    Iterable[str]
+        Generator giving lines of output for all files in zip.
+        Also header and other pretty print related non file text.
     """
 
-    lines = []
+    # Sum of all file sizes. The uncompressed size of zip file contents
     file_size_sum = 0
 
-    lines.append(f'Archive:  {archive_name}')
-    lines.append('  Length      Date    Time    Name')
-    lines.append('---------  ---------- -----   ----')
+    yield f'Archive:  {archive_name}'
+    yield '  Length      Date    Time    Name'
+    yield '---------  ---------- -----   ----'
     for file_name, fields in files_in_zip.items():
         file_size_sum += fields["length"]
-        lines.append(f'{fields["length"]:9d}  {fields["date_time"].isoformat(sep=" ", timespec="minutes")}   {file_name}')
-    lines.append('---------                     ----')
-    lines.append(f'{file_size_sum:9d}                     {len(files_in_zip)} files')
-
-    return "\n".join(lines)
+        yield f'{fields["length"]:9d}  {fields["date_time"].isoformat(sep=" ", timespec="minutes")}   {file_name}'
+    yield '---------                     ----'
+    yield f'{file_size_sum:9d}                     {len(files_in_zip)} files'
 
 
 def main() -> None:
@@ -506,7 +505,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # If we are reading a s3 based file. Create a transportation client for it.
-    # If we are not, just just connect directly
+    # If we are not, just connect directly (Set client to None)
     client = None
     if args.zipfile.startswith('s3://'):
         # Reads in config used by s3cmd and uses the login credentials from it.
@@ -520,33 +519,34 @@ def main() -> None:
             exit(-1)
 
         # Create a transportation client object to define how to connect to the .zip file
-        client = create_tranport_client(config)
+        client = create_transport_client(config)
 
     # Read the central directory of the s3 file
     try:
         with smart_open.open(args.zipfile, 'rb', transport_params=dict(client=client)) as f:
             # Read the full central directory
-            files_in_zip_main = read_central_dir(f)
+            files_in_zip = read_central_dir(f)
     except (FileNotFoundError, OSError) as e:
         print(e)
         exit(-1)
 
-    # List files in zip and quit
+    # Pretty print file information in zip and quit
     if args.list is True:
-        print(list_files(args.zipfile, files_in_zip_main))
+        for line in pretty_print_files(args.zipfile, files_in_zip):
+            print(line)
         exit(0)
 
     # Get files that match
-    for file_name_main, fields_main in files_in_zip_main.items():
-        position = fields_main['position']
+    for file_name, fields in files_in_zip.items():
+        position = fields['position']
         for file_regexp in args.file:
-            if fnmatch.fnmatchcase(file_name_main, file_regexp):
-                print('  inflating:', file_name_main)
-                path = os.path.dirname(file_name_main)
+            if fnmatch.fnmatchcase(file_name, file_regexp):
+                print('  inflating:', file_name)
+                path = os.path.dirname(file_name)
                 # TODO parse & prevent paths to only go downwards from where we are now
                 if len(path) > 0:
                     os.makedirs(path, exist_ok=True) # Create path for file if needed
-                unzip_file_at_pos(args.zipfile, file_name_main, position, client)
+                unzip_file_at_pos(args.zipfile, file_name, position, client)
 
 # Operations done only if we are run on the commandline
 if __name__ == '__main__':
