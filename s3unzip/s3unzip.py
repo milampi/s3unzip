@@ -393,6 +393,8 @@ def read_central_dir(s3_stream: io.BufferedIOBase) -> dict:
     -------
     dict
         Dict of filenames with their start offsets in zip file
+        Example:
+        { 'empty.txt': {'position': 0, 'length': 0, 'date_time': datetime.datetime(2023, 12, 31, 12, 51, 2)} }
     """
 
     # Find and seek to beginning of central directory
@@ -452,6 +454,7 @@ def create_transport_client(config: configparser.ConfigParser) -> botocore.clien
     client = session.client('s3', endpoint_url=url)
 
     return client
+
 
 def pretty_print_files(archive_name: str, files_in_zip: dict) -> Iterable[str]:
     """A generator that pretty prints the central directory of a zip file line by line
