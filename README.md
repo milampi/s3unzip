@@ -1,6 +1,6 @@
 # How to unzip a single file from a zip inside S3
 
-s3unzip is a small command line program to unzip a file from a zip that is inside a S3 bucket. It tries to resemble both in output and command line arguments the real unzip program, but that is just for convenience. Most of the original unzip flags would make no sense in S3 context.
+`s3unzip` is a small command line program to unzip a file from a zip that is inside a S3 bucket. It tries to resemble both in output and command line arguments the real unzip program, but that is just for convenience. Most of the original unzip flags would make no sense in S3 context.
 
 # Usage example
 
@@ -25,7 +25,6 @@ pip3 install s3unzip-0.0.0-py3-none-any.whl
 ```
 
 # TODO
-- Unit tests for functions
 - Integration tests for different S3 services
 - Better heuristics for finding the last directory entry
 

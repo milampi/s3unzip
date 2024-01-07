@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import pytest
+import os
 
 from s3unzip import *
 
@@ -61,10 +62,18 @@ def test_pretty_print_files():
     assert '\n'.join(pretty_print_files('test_data/test1.zip', files_in_zip)) == pretty_print_target
 
 
+def test_unzip_file_at_pos():
+    os.chdir('test_data')
+    unzip_file_at_pos('test1.zip', 'empty.txt', 0, None)
+
+    assert os.path.isfile('empty.txt')
+
+    os.remove('empty.txt') 
+    os.chdir('..')
+
+
 '''
 TODO
-def parse_local_file_header(s3_stream: io.BufferedIOBase) -> dict:
-def unzip_file_at_pos(s3_file_name: str, out_file_name: str, pos: int, client: Any) -> None:
 def create_transport_client(config: configparser.ConfigParser) -> botocore.client.BaseClient:
 '''
 

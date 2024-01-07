@@ -187,6 +187,7 @@ def parse_local_file_header(s3_stream: io.BufferedIOBase) -> dict:
     """Parses local file header
 
     This record is embedded in zip stream, and not in the central file directory.
+    Currently this function is never needed, as the central directory is the final authority.
     https://docs.fileformat.com/compression/zip/#local-file-header
 
     Parameters
