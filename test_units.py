@@ -6,13 +6,53 @@ import os
 
 from s3unzip import *
 
-def test_find_central_dir():
+# Fixtures ------------------------------------------------------------------
+
+@pytest.fixture
+def local_file_name():
+    '''Fixture to return local filesystem url to zip file'''
+    return 'test_data/test1.zip'
+
+
+@pytest.fixture
+def local_transport_client():
+    '''Fixture to return local filesystem i.e. empty (None) transport client'''
+    return None
+
+
+@pytest.fixture
+def s3_file_name():
+    '''Fixture to return transport client for s3 based zip file'''
+    return 's3://testbase/s3unzip_testing/test1.zip'
+
+
+@pytest.fixture
+def s3_transport_client():
+    '''Fixture to return transport client for s3 based zip file'''
+    # Reads in config used by s3cmd and uses the login credentials from it.
+    # s3cmd config is usually in file ~/.s3cfg
+    config = configparser.ConfigParser()
+    with open(f'{os.getenv("HOME")}/.s3cfg_scaleway') as f:
+        config.read_file(f)
+    client = create_transport_client(config)
+
+    return client
+
+# Local zip file tests ------------------------------------------------------
+
+def test_find_central_dir_direct_open():
+    '''Test to see we are still compatible with direct access filesystem'''
     with open('test_data/test1.zip','rb') as f:
         assert find_central_dir(f) == 67
 
 
-def test_read_central_dir():
-    with smart_open.open('test_data/test1.zip', 'rb', transport_params=dict(client=None)) as f:
+def test_find_central_dir(local_file_name, local_transport_client):
+    with smart_open.open(local_file_name, 'rb', transport_params=dict(client=local_transport_client)) as f:
+        assert find_central_dir(f) == 67
+
+
+def test_read_central_dir(local_file_name, local_transport_client):
+    with smart_open.open(local_file_name, 'rb', transport_params=dict(client=local_transport_client)) as f:
         files_in_zip = read_central_dir(f)
     assert files_in_zip == {'empty.txt': {'date_time': datetime.datetime(2023, 12, 31, 12, 51, 2), 'length': 0, 'position': 0}}
 
@@ -47,8 +87,8 @@ def test_parse_extra_fields():
     assert result == correct_result
 
 
-def test_pretty_print_files():
-    with smart_open.open('test_data/test1.zip', 'rb', transport_params=dict(client=None)) as f:
+def test_pretty_print_files(local_file_name, local_transport_client):
+    with smart_open.open(local_file_name, 'rb', transport_params=dict(client=local_transport_client)) as f:
         files_in_zip = read_central_dir(f)
 
     # The aim is to resemble normal zip command output as closely as possible
@@ -72,8 +112,25 @@ def test_unzip_file_at_pos():
     os.chdir('..')
 
 
-'''
-TODO
-def create_transport_client(config: configparser.ConfigParser) -> botocore.client.BaseClient:
-'''
+# S3 based zip file tests ---------------------------------------------------
+
+
+@pytest.mark.skipif(not os.path.isfile(f'{os.getenv("HOME")}/.s3cfg_scaleway'), reason="No scaleway credientials defined")
+def test_s3_create_transport_client():
+    '''Test if creation of transport credientials works'''
+    config = configparser.ConfigParser()
+    with open(f'{os.getenv("HOME")}/.s3cfg_scaleway') as f:
+        config.read_file(f)
+    client = create_transport_client(config)
+
+    # Not much we can test here
+    assert client._endpoint._endpoint_prefix == 's3'
+
+
+@pytest.mark.skipif(not os.path.isfile(f'{os.getenv("HOME")}/.s3cfg_scaleway'), reason="No scaleway credientials defined")
+def test_s3_read_central_dir(s3_file_name, s3_transport_client):
+    with smart_open.open(s3_file_name, 'rb', transport_params=dict(client=s3_transport_client)) as f:
+        files_in_zip = read_central_dir(f)
+    assert files_in_zip == {'empty.txt': {'date_time': datetime.datetime(2023, 12, 31, 12, 51, 2), 'length': 0, 'position': 0}}
+
 
