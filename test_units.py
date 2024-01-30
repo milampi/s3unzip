@@ -19,7 +19,7 @@ def scaleway_transport_client():
 
     return client
 
-# List of different test targets for zip tests
+# List of different test targets for empty zip tests
 testdata = [
     pytest.param( 'test_data/test1.zip', None, id="local"),
 ]
@@ -27,6 +27,15 @@ testdata = [
 # If scaleway credientials exist, add them to test list
 if os.path.isfile(f'{os.getenv("HOME")}/.s3cfg_scaleway'):
    testdata.append( pytest.param( 's3://testbase/s3unzip_testing/test1.zip', scaleway_transport_client(), id="scaleway") )
+
+# List of different test targets for small zip tests
+test2data = [
+    pytest.param( 'test_data/test2.zip', None, id="local"),
+]
+
+# If scaleway credientials exist, add them to test list
+if os.path.isfile(f'{os.getenv("HOME")}/.s3cfg_scaleway'):
+   test2data.append( pytest.param( 's3://testbase/s3unzip_testing/test2.zip', scaleway_transport_client(), id="scaleway") )
 
 
 # Direct file tests ---------------------------------------------------------
@@ -132,4 +141,11 @@ def test_unzip_file_at_pos(file_name, transport_client):
     os.remove('empty.txt') 
     os.chdir('..')
 
+@pytest.mark.parametrize('file_name,transport_client', test2data)
+def test_unzip_file_at_pos_streamout(file_name, transport_client):
+    tome = io.BytesIO()
+    unzip_file_at_pos(file_name, tome, 0, transport_client)
+
+    assert tome.getvalue() == b'D \x82<\xfd\xe6\xf1\xc2k0'
+    tome.close()
 

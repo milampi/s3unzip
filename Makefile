@@ -13,3 +13,8 @@ test: export PYTHONDONTWRITEBYTECODE = 1
 test:
 	py.test3 -p no:cacheprovider -v test_units.py
 
+gentestdata:
+	python3 -c 'import random,sys; random.seed(1); sys.stdout.buffer.write(bytes([ random.randint(0,255) for _ in range(10) ]))' >test_data/small.bin
+	(cd test_data; zip test2.zip small.bin)
+	@rm -f test_data/small.bin
+

@@ -17,6 +17,7 @@ Zip format implementation gathered from:
 
 import io
 import os
+import sys
 import argparse
 import configparser
 import struct
@@ -305,35 +306,49 @@ def parse_endof_central_dir_record(s3_stream: io.BufferedIOBase) -> dict:
     return ecdr
 
 
-def unzip_file_at_pos(s3_file_name: str, out_file_name: str, pos: int, client: Any) -> None:
+def unzip_file_at_pos(s3_file_name: str, out_file_name: Any, pos: int, client: Any) -> None:
     """Unzip file at position
 
     Parameters
     ----------
     s3_file_name : str
         Url of file from which compressed data is read from
-    out_file_name : str
-        Name of file into which the uncompressed data is written
+    out_file_name : Any
+        Name of file into which the uncompressed data is written, or
+        file descriptor into which data is written
     pos : int
         At which byte position in file the file is read from
     client :
         boto s3 client connection where the zip stream is read from
     """
 
-    # Read chunk by chunk from s3 and write to output file
-    with smart_open.open(s3_file_name, 'rb', transport_params=dict(client=client)) as s3_stream, \
-         open(out_file_name, 'wb') as out:
-        # Seek in s3 to start position
-        s3_stream.seek(pos, 0)
+    # Open the output file, or use file stream that has been provided
+ 
+    if isinstance(out_file_name, str):
+       out=open(out_file_name, 'wb')
+    else:
+       out=out_file_name # out_file_name is a stream like sys.stdout
 
-        # Read chunk by chunk
-        # for file_local_name, file_size, unzipped_chunks in stream_unzip.stream_unzip(f):
-        for _, _, unzipped_chunks in stream_unzip.stream_unzip(s3_stream):
-            # unzipped_chunks must be iterated to completion or
-            # UnfinishedIterationError will be raised
-            for chunk in unzipped_chunks:
-                out.write(chunk)
-            break
+    try:
+        # Read chunk by chunk from s3 and write to output file
+        with smart_open.open(s3_file_name, 'rb', transport_params=dict(client=client)) as s3_stream:
+            # Seek in s3 to start position
+            s3_stream.seek(pos, 0)
+    
+            # Read chunk by chunk
+            # for file_local_name, file_size, unzipped_chunks in stream_unzip.stream_unzip(f):
+            for _, _, unzipped_chunks in stream_unzip.stream_unzip(s3_stream):
+                # unzipped_chunks must be iterated to completion or
+                # UnfinishedIterationError will be raised
+                for chunk in unzipped_chunks:
+                    out.write(chunk)
+                break
+
+    finally:
+        # Close the output file if we opened it
+        if isinstance(out_file_name, str):
+            out.close()
+
     return
 
 
