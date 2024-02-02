@@ -3,6 +3,7 @@
 
 import pytest
 import os
+import hashlib
 
 from s3unzip import *
 
@@ -36,6 +37,15 @@ test2data = [
 # If scaleway credientials exist, add them to test list
 if os.path.isfile(f'{os.getenv("HOME")}/.s3cfg_scaleway'):
    test2data.append( pytest.param( 's3://testbase/s3unzip_testing/test2.zip', scaleway_transport_client(), id="scaleway") )
+
+# List of different test targets for small zip tests
+test3data = [
+    pytest.param( 'test_data/test3.zip', None, id="local"),
+]
+
+# If scaleway credientials exist, add them to test list
+if os.path.isfile(f'{os.getenv("HOME")}/.s3cfg_scaleway'):
+   test3data.append( pytest.param( 's3://testbase/s3unzip_testing/test3.zip', scaleway_transport_client(), id="scaleway") )
 
 
 # Direct file tests ---------------------------------------------------------
@@ -141,11 +151,23 @@ def test_unzip_file_at_pos(file_name, transport_client):
     os.remove('empty.txt') 
     os.chdir('..')
 
+
 @pytest.mark.parametrize('file_name,transport_client', test2data)
 def test_unzip_file_at_pos_streamout(file_name, transport_client):
+    '''Open 10 byte file'''
     tome = io.BytesIO()
     unzip_file_at_pos(file_name, tome, 0, transport_client)
 
     assert tome.getvalue() == b'D \x82<\xfd\xe6\xf1\xc2k0'
+    tome.close()
+
+
+@pytest.mark.parametrize('file_name,transport_client', test3data)
+def test_unzip_file_at_pos_streamout(file_name, transport_client):
+    '''Open 10 000 byte file'''
+    tome = io.BytesIO()
+    unzip_file_at_pos(file_name, tome, 0, transport_client)
+
+    assert hashlib.md5( tome.getvalue() ).hexdigest() == '3ed2e1443a3ab185f972a09ed6147789'
     tome.close()
 
