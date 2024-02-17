@@ -517,7 +517,7 @@ def main() -> None:
     parser.add_argument('zipfile', help='S3 based zip archive to read from. Example: s3://bucket/object.zip')
     parser.add_argument('file', nargs='*', help='Files to unzip from archive. Example: "somefile*.json"')
     parser.add_argument('-l', '--list', action='store_true', help='List files in zip.')
-    parser.add_argument('-p', '--pipe', action='store_true', help='Pipe file directly to stdout.')
+    parser.add_argument('-p', '--pipe', action='store_true', help='Pipe file to stdout.')
     parser.add_argument('-e', '--env', default=f'{os.getenv("HOME")}/.s3cfg', help='S3 access config. Default: %(default)s')
     # --toc-show-addr --toc-search-start --toc-from-file # TODO table of contents control
     # -x -d -q -qq

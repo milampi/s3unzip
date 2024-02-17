@@ -38,6 +38,7 @@ s3unzip [-l] [-e mypath/.s3cfg] zip_file_name [regexp_of_file_wanted]
 Flag | Action
 ---- | ------
 `-l`/`--list` | List files in zip
+`-p`/`--pipe` | Pipe file to stdout
 `-e [file]`/`--env [file]` | File for S3 access config. Default: ~/.s3cfg
 
 # Current state of software
