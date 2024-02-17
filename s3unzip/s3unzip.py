@@ -341,7 +341,10 @@ def unzip_file_at_pos(s3_file_name: str, out_file_name: Any, pos: int, client: A
                 # unzipped_chunks must be iterated to completion or
                 # UnfinishedIterationError will be raised
                 for chunk in unzipped_chunks:
-                    out.write(chunk)
+                    if out==sys.stdout:
+                        sys.stdout.buffer.write(chunk)
+                    else:
+                        out.write(chunk)
                 break
 
     finally:
@@ -514,7 +517,7 @@ def main() -> None:
     parser.add_argument('zipfile', help='S3 based zip archive to read from. Example: s3://bucket/object.zip')
     parser.add_argument('file', nargs='*', help='Files to unzip from archive. Example: "somefile*.json"')
     parser.add_argument('-l', '--list', action='store_true', help='List files in zip.')
-    parser.add_argument('-p', '--pipe', action='store_true', help='Pipe file directly to stdout.') # TODO not implemented yet
+    parser.add_argument('-p', '--pipe', action='store_true', help='Pipe file directly to stdout.')
     parser.add_argument('-e', '--env', default=f'{os.getenv("HOME")}/.s3cfg', help='S3 access config. Default: %(default)s')
     # --toc-show-addr --toc-search-start --toc-from-file # TODO table of contents control
     # -x -d -q -qq
@@ -560,12 +563,20 @@ def main() -> None:
         position = fields['position']
         for file_regexp in args.file:
             if fnmatch.fnmatchcase(file_name, file_regexp):
-                print('  inflating:', file_name)
-                path = os.path.dirname(file_name)
-                # TODO parse & prevent paths to only go downwards from where we are now
-                if len(path) > 0:
-                    os.makedirs(path, exist_ok=True) # Create path for file if needed
-                unzip_file_at_pos(args.zipfile, file_name, position, client)
+                if args.pipe is False:
+                    # Unzip into a file
+                    print('  inflating:', file_name)
+
+                    path = os.path.dirname(file_name)
+                    # TODO parse & prevent paths to only go downwards from where we are now
+                    if len(path) > 0:
+                        os.makedirs(path, exist_ok=True) # Create path for file if needed
+
+                    unzip_file_at_pos(args.zipfile, file_name, position, client)
+
+                else:
+                    # Unzip to stdout
+                    unzip_file_at_pos(args.zipfile, sys.stdout, position, client)
 
 # Operations done only if we are run on the commandline
 if __name__ == '__main__':
