@@ -11,4 +11,5 @@ test_local
 build/
 dist/
 s3unzip.egg-info/
+test_data/test_big.zip
 
