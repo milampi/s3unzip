@@ -47,6 +47,25 @@ test3data = [
 if os.path.isfile(f'{os.getenv("HOME")}/.s3cfg_scaleway'):
    test3data.append( pytest.param( 's3://testbase/s3unzip_testing/test3.zip', scaleway_transport_client(), id="scaleway") )
 
+# List of different test targets for small zip tests
+test4data = [
+    pytest.param( 'test_data/test4.zip', None, id="local"),
+]
+
+# If scaleway credientials exist, add them to test list
+if os.path.isfile(f'{os.getenv("HOME")}/.s3cfg_scaleway'):
+   test4data.append( pytest.param( 's3://testbase/s3unzip_testing/test4.zip', scaleway_transport_client(), id="scaleway") )
+
+# List of different test targets for small zip tests
+test5data = [
+    pytest.param( 'test_data/test5.zip', None, id="local"),
+]
+
+# If scaleway credientials exist, add them to test list
+if os.path.isfile(f'{os.getenv("HOME")}/.s3cfg_scaleway'):
+   test5data.append( pytest.param( 's3://testbase/s3unzip_testing/test5.zip', scaleway_transport_client(), id="scaleway") )
+
+
 
 # Direct file tests ---------------------------------------------------------
 
@@ -180,6 +199,37 @@ def test_unzip_file_at_pos_streamout(file_name, transport_client):
     tome.close()
 
 
+@pytest.mark.parametrize('file_name,transport_client', test4data)
+def test_unzip_multiple_files_streamout(file_name, transport_client):
+    with smart_open.open(file_name, 'rb', transport_params=dict(client=transport_client)) as f:
+        f.seek(find_central_dir(f), 0)
+        files_in_zip = read_central_dir(f)
+        assert files_in_zip['small1.bin']['position'] == 0
+        assert files_in_zip['small2.bin']['position'] == 20069
+        assert files_in_zip['small3.bin']['position'] == 40139
+        assert files_in_zip['small4.bin']['position'] == 60210
+
+        tome = io.BytesIO()
+        unzip_file_at_pos(file_name, tome, files_in_zip['small1.bin']['position'], transport_client)
+        assert hashlib.md5( tome.getvalue() ).hexdigest() == '02b869c9e3d4c863653436f94ac04377'
+        tome.close()
+
+        tome = io.BytesIO()
+        unzip_file_at_pos(file_name, tome, files_in_zip['small2.bin']['position'], transport_client)
+        assert hashlib.md5( tome.getvalue() ).hexdigest() == '6c1428780a4b08e392081866e940fba5'
+        tome.close()
+
+        tome = io.BytesIO()
+        unzip_file_at_pos(file_name, tome, files_in_zip['small3.bin']['position'], transport_client)
+        assert hashlib.md5( tome.getvalue() ).hexdigest() == '8a4c63056439a0c10d982425e73a7722'
+        tome.close()
+
+        tome = io.BytesIO()
+        unzip_file_at_pos(file_name, tome, files_in_zip['small4.bin']['position'], transport_client)
+        assert hashlib.md5( tome.getvalue() ).hexdigest() == 'e553ce7f78e3883191db7a5dee89abcb'
+        tome.close()
+
+
 # Tests for ZIP64 support ---------------------------------------------------
 
 
@@ -192,6 +242,36 @@ def test_find_central_dir_direct_open_zip64():
 #    The central directory is 97 (0000000000000061h) bytes long,
 #    and its (expected) offset in bytes from the beginning of the zipfile
 #    is 4312443080 (00000001010AA8C8h).
+
+@pytest.mark.parametrize('file_name,transport_client', test5data)
+def test_unzip_multiple_files_streamout_zip64(file_name, transport_client):
+    with smart_open.open(file_name, 'rb', transport_params=dict(client=transport_client)) as f:
+        f.seek(find_central_dir(f), 0)
+        files_in_zip = read_central_dir(f)
+        assert files_in_zip['small1.bin']['position'] == 0
+        assert files_in_zip['small2.bin']['position'] == 20089
+        assert files_in_zip['small3.bin']['position'] == 40179
+        assert files_in_zip['small4.bin']['position'] == 60270
+
+        tome = io.BytesIO()
+        unzip_file_at_pos(file_name, tome, files_in_zip['small1.bin']['position'], transport_client)
+        assert hashlib.md5( tome.getvalue() ).hexdigest() == '02b869c9e3d4c863653436f94ac04377'
+        tome.close()
+
+        tome = io.BytesIO()
+        unzip_file_at_pos(file_name, tome, files_in_zip['small2.bin']['position'], transport_client)
+        assert hashlib.md5( tome.getvalue() ).hexdigest() == '6c1428780a4b08e392081866e940fba5'
+        tome.close()
+
+        tome = io.BytesIO()
+        unzip_file_at_pos(file_name, tome, files_in_zip['small3.bin']['position'], transport_client)
+        assert hashlib.md5( tome.getvalue() ).hexdigest() == '8a4c63056439a0c10d982425e73a7722'
+        tome.close()
+
+        tome = io.BytesIO()
+        unzip_file_at_pos(file_name, tome, files_in_zip['small4.bin']['position'], transport_client)
+        assert hashlib.md5( tome.getvalue() ).hexdigest() == 'e553ce7f78e3883191db7a5dee89abcb'
+        tome.close()
 
 
 # TODO missing tests
