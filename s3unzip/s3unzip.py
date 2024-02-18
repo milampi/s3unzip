@@ -134,7 +134,52 @@ def _extra_field_uid_gid(hbytes: bytes) -> dict:
     return fields
 
 
-def parse_extra_fields(extra_bytes: bytes, in_cd: bool = True) -> dict:
+def _extra_field_zip64_extended_info(hlen: int, hbytes: bytes) -> dict:
+    """Parses extra field for zip64 extended info
+
+    zip extra field id 0x0001:
+    Zip64 extra fields https://fossies.org/linux/zip/proginfo/extrafld.txt
+
+    This internal function will change a lot as all the miss implementations and strange behaviors
+    from real life zip files will be found. Do not rely on this function.
+
+    Parameters
+    ----------
+    hbytes : bytes
+        bytes from extra field in either local file or central directory
+
+    Returns
+    -------
+    dict
+        dict of information from fields in one header: { 'uncomp_len': 4311744512, 'comp_len': 4312442995 ... }
+    """
+
+    parse_map = '<Q'
+    field_names = 'uncomp_len'
+
+    if hlen>8:
+       parse_map +='Q'
+       field_names += ' comp_len'
+
+    if hlen>16:
+       parse_map +='Q'
+       field_names += ' start'
+
+    if hlen>24:
+       parse_map +='I'
+       field_names += ' disk_num'
+
+    # If all fields get replaces. It will look like:
+    # parse_map = '<QQQI'
+    # field_names = 'uncomp_len comp_len start disk_num'
+
+    fields = struct.unpack(parse_map, hbytes)
+    zip64extra = dict(zip(field_names.split(), fields))
+
+    return zip64extra
+
+
+def parse_extra_fields(extra_bytes: bytes, overwrite: dict, in_cd: bool = True) -> dict:
     """Parses extra fields in a record
 
     Parses the extra fields.
@@ -172,13 +217,18 @@ def parse_extra_fields(extra_bytes: bytes, in_cd: bool = True) -> dict:
         # Universal time
         if   hid == 0x5455:
             extra_fields[hid] = _extra_field_universal_time(hlen, hbytes, in_cd)
-            # Adds: { mod_time: xxxx, acc_time: xxxx, cre_time: xxxx }
+            # Adds: 0x5455: { mod_time: xxxx, acc_time: xxxx, cre_time: xxxx }
         # Unix UID/GID
         elif hid == 0x7875:
             extra_fields[hid] = _extra_field_uid_gid(hbytes)
-            # Adds: { version: 1, gid: 1000, uid: 100 }
+            # Adds: 0x7875: { version: 1, gid: 1000, uid: 100 }
+        # Zip64 extended info
+        elif hid == 0x0001:
+            extra_fields[hid] = _extra_field_zip64_extended_info(hlen, hbytes)
+            overwrite.update(extra_fields[hid])
+            # Adds: 0x0001: { 'uncomp_len': 4311744512, 'comp_len': 4312442995 ... }
         else:
-            print(f'Unknown field 0x{hid:02x} {hlen} {hbytes}')
+            print(f'Unknown field hid:0x{hid:02x} len:{hlen} bytes:{hbytes} (parse_extra_fields)')
             extra_fields[hid] = hbytes
 
     return extra_fields
@@ -215,11 +265,11 @@ def parse_local_file_header(s3_stream: io.BufferedIOBase) -> dict:
 
     # Parse the extra fields
     extra_bytes = s3_stream.read(lfh['extra_len'])
-    lfh['extra'] = parse_extra_fields(extra_bytes, False)
+    lfh['extra'] = parse_extra_fields(extra_bytes, lfh, False)
 
     # Check if the compressed file is a zip64 file. Meaning larger than 2 GB TODO add zip64 support
     if lfh['comp_len'] == 0xffffffff or lfh['uncomp_len'] == 0xffffffff:
-        print('zip64 not supported yet')
+        print('zip64 not supported yet (parse_local_file_header)')
 
     return lfh
 
@@ -260,7 +310,7 @@ def parse_central_dir_file_header(s3_stream: io.BufferedIOBase) -> dict:
 
     # Parse the extra fields
     extra_bytes = s3_stream.read(cdfh['extra_len'])
-    cdfh['extra'] = parse_extra_fields(extra_bytes)
+    cdfh['extra'] = parse_extra_fields(extra_bytes, cdfh, True)
 
     # Guess the encoding of the comment string
     if cdfh['comment_len'] > 0:
@@ -276,7 +326,7 @@ def parse_central_dir_file_header(s3_stream: io.BufferedIOBase) -> dict:
 def parse_endof_central_dir_record(s3_stream: io.BufferedIOBase) -> dict:
     """Parses end of central directory record
 
-    This record is marks the end of the central file directory.
+    This record marks the end of the central file directory.
     It is mainly used to find the beginning of the central directory.
     https://docs.fileformat.com/compression/zip/#end-of-central-directory-record
 
@@ -289,7 +339,7 @@ def parse_endof_central_dir_record(s3_stream: io.BufferedIOBase) -> dict:
     -------
     dict
         Dict of fields from the header record: (disk_num dir_disk_num
-        disk_records_num tot_records_num dir_len dir_start comment_len)
+        disk_records_num tot_records_num dir_len dir_start comment_len comment)
     """
 
     fields = struct.unpack('<HHHHIIH', s3_stream.read(18))
@@ -304,6 +354,63 @@ def parse_endof_central_dir_record(s3_stream: io.BufferedIOBase) -> dict:
         ecdr['comment'] = ''
 
     return ecdr
+
+
+def parse_endof_central_dir_record_zip64(s3_stream: io.BufferedIOBase) -> dict:
+    """Parses end of central directory record zip64 version
+
+    This record marks the end of the central file directory.
+    It is mainly used to find the beginning of the central directory.
+    https://docs.fileformat.com/compression/zip/#end-of-central-directory-record
+
+    Parameters
+    ----------
+    s3_stream : io.BufferedIOBase
+        filestream where the end of central directory record is read from
+
+    Returns
+    -------
+    dict
+        Dict of fields from the header record: ('len ver minver disk_num
+        dir_disk_num disk_records_num tot_records_num dir_len dir_start comment)
+    """
+
+    fields = struct.unpack('<QHHIIQQQQ', s3_stream.read(52))
+    ecdr64 = dict(zip('len ver minver disk_num dir_disk_num disk_records_num tot_records_num dir_len dir_start'.split(), fields))
+
+    # Guess the encoding of the comment string
+    if ecdr64['len'] > 52: # We have some comment characters
+        comment_bytes = s3_stream.read(ecdr64['len']-52)
+        comment_encoding = chardet.detect(comment_bytes)['encoding']
+        ecdr64['comment'] = comment_bytes.decode(comment_encoding)
+    else:
+        ecdr64['comment'] = ''
+
+    return ecdr64
+
+
+def parse_endof_central_dir_locator_zip64(s3_stream: io.BufferedIOBase) -> dict:
+    """Parses end of central directory locator zip64 version
+
+    This record marks the end of the central file directory.
+    It is mainly used to find the beginning of the central directory.
+    https://docs.fileformat.com/compression/zip/#end-of-central-directory-record
+
+    Parameters
+    ----------
+    s3_stream : io.BufferedIOBase
+        filestream where the end of central directory locator is read from
+
+    Returns
+    -------
+    dict
+        Dict of fields from the header record: ('disk_num start_zip64 tot_disk_num')
+    """
+
+    fields = struct.unpack('<IQI', s3_stream.read(16))
+    ecdl64 = dict(zip('disk_num start_zip64 tot_disk_num'.split(), fields))
+
+    return ecdl64
 
 
 def unzip_file_at_pos(s3_file_name: str, out_file_name: Any, pos: int, client: Any) -> None:
@@ -369,9 +476,10 @@ def find_central_dir(s3_stream: io.BufferedIOBase) -> int:
     -------
     int
         File offset where the End of Central Directory Record starts
+        Can be 32 or 64 bits long.
     """
 
-    # Try to find End of Central Directory Record
+    # Try to find "End of Central Directory" Record
     # Seek from the end of file the maximum length of comment 65 kB and End of Central Directory Record 18 B + header 4 B
     try:
         s3_stream.seek(-65536 - 18 - 4, io.SEEK_END) # Start searching -65558 bytes from the end of file.
@@ -384,16 +492,30 @@ def find_central_dir(s3_stream: io.BufferedIOBase) -> int:
     # Read the maximum size of directory block
     byte_block = s3_stream.read(65536 + 18 + 4)
 
-    # Find from the binary block the marker for Central Directory
+    # TODO Look for multiple markers and choose the last one
+    # Find from the binary block the marker for End of Central Directory
     addr = byte_block.find(b'\x50\x4b\x05\x06')
     if addr == -1:
-        Exception('No Central Directory Record found')
+        Exception('No End of Central Directory Record found')
 
-    # Unpack the record for later use
-    fields = struct.unpack('<HHHHIIH', byte_block[addr+4:addr+4+18])
-    # TODO Sanity check. Check if it just a random number sequence (Is there a CD at the end of the pointed field)
+    # Parse se buffer as a file stream
+    ecdr = parse_endof_central_dir_record( io.BytesIO(byte_block[addr+4:addr+4+18]) )
+ 
+    # TODO Sanity check. Check if it is just a random number sequence (Is there a CD at the end of the pointed field)
 
-    cd_pos: int = fields[5]
+    cd_pos = ecdr['dir_start']
+
+    # zip64 version of the record has cd_pos as 0xffffffff. Find and parse se zip64 record instead
+    if cd_pos == 0xffffffff:
+        # Find from the binary block the marker for Central Directory
+        addr = byte_block.find(b'\x50\x4b\x06\x06')
+        if addr == -1:
+            Exception('No End of Central Directory Record (zip64) found')
+
+        len_field = struct.unpack('<Q', byte_block[addr+4:addr+4+8] )
+        ecdr64 = parse_endof_central_dir_record_zip64( io.BytesIO(byte_block[addr+4:addr+4+len_field[0]+8]) )
+        cd_pos = ecdr64['dir_start']
+
     # TODO Sanity check. Check if this CDR is the actually last one, or if there is one more after this.
     # TODO Check if the information about multiple CDR when zip has been appended is correct
 
@@ -406,7 +528,8 @@ def read_central_dir(s3_stream: io.BufferedIOBase) -> dict:
     Parameters
     ----------
     s3_stream : io.BufferedIOBase
-        filestream where the central directory record is read from
+        Filestream where the central directory record is read from.
+        Must be positioned at the beginning of the central dir record.
 
     Returns
     -------
@@ -415,10 +538,6 @@ def read_central_dir(s3_stream: io.BufferedIOBase) -> dict:
         Example:
         { 'empty.txt': {'position': 0, 'length': 0, 'date_time': datetime.datetime(2023, 12, 31, 12, 51, 2)} }
     """
-
-    # Find and seek to beginning of central directory
-    cd_pos = find_central_dir(s3_stream)
-    s3_stream.seek(cd_pos, 0)
 
     # Read through central directory and create a list of files in it
     files_in_zip: dict = {}
@@ -429,6 +548,8 @@ def read_central_dir(s3_stream: io.BufferedIOBase) -> dict:
 
         (header_id,) = struct.unpack('<L', byte_block)
 
+        #print(f'Header ID: 0x{header_id:08x}')
+
         # Central Directory File Header
         if header_id == 0x02014b50:
             cdfh = parse_central_dir_file_header(s3_stream)
@@ -436,11 +557,19 @@ def read_central_dir(s3_stream: io.BufferedIOBase) -> dict:
             files_in_zip[cdfh['fname']]['position'] = cdfh['start']
             files_in_zip[cdfh['fname']]['length'] = cdfh['uncomp_len']
             files_in_zip[cdfh['fname']]['date_time'] = cdfh['date_time']
+            files_in_zip[cdfh['fname']]['extra'] = cdfh['extra']
         # End of Central Directory Record
         elif header_id == 0x06054b50:
             parse_endof_central_dir_record(s3_stream)
+        # Zip64 end of central directory record
+        elif header_id == 0x06064b50:
+            parse_endof_central_dir_record_zip64(s3_stream)
+        # Zip64 end of central directory locator
+        elif header_id == 0x07064b50:
+            # https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
+            parse_endof_central_dir_locator_zip64(s3_stream)
         else:
-            print(f'Unknown header: 0x{header_id:08x}')
+            print(f'Unknown header: 0x{header_id:08x} (read_central_dir)')
             break
 
     return files_in_zip
@@ -546,6 +675,10 @@ def main() -> None:
     # Read the central directory of the s3 file
     try:
         with smart_open.open(args.zipfile, 'rb', transport_params=dict(client=client)) as f:
+            # Find and seek to beginning of central directory
+            cd_pos = find_central_dir(f)
+            f.seek(cd_pos, 0)
+
             # Read the full central directory
             files_in_zip = read_central_dir(f)
     except (FileNotFoundError, OSError) as e:

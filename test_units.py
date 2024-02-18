@@ -89,7 +89,8 @@ def test_parse_endof_central_dir_record():
 def test_parse_extra_fields():
     extra_field = b'UT\x05\x00\x03\x96G\x91eux\x0b\x00\x01\x04\xe8\x03\x00\x00\x04d\x00\x00\x00'
 
-    result = parse_extra_fields(extra_field)
+    overwrite = {}
+    result = parse_extra_fields(extra_field, overwrite)
 
     correct_result = {21589: {'mod_time': datetime.datetime(2023, 12, 31, 10, 51, 2)}, 30837: {'version': 1, 'uid': 1000, 'gid': 3}}
 
@@ -114,18 +115,25 @@ def test_s3_create_transport_client():
 def test_find_central_dir(file_name, transport_client):
     with smart_open.open(file_name, 'rb', transport_params=dict(client=transport_client)) as f:
         assert find_central_dir(f) == 67
+# Correct value can be found using: zipinfo -vh test1.zip
+# The output is:
+#    The central directory is 79 (000000000000004Fh) bytes long,
+#    and its (expected) offset in bytes from the beginning of the zipfile
+#    is 67 (0000000000000043h).
 
 
 @pytest.mark.parametrize('file_name,transport_client', testdata)
 def test_read_central_dir(file_name, transport_client):
     with smart_open.open(file_name, 'rb', transport_params=dict(client=transport_client)) as f:
+        f.seek(find_central_dir(f), 0)
         files_in_zip = read_central_dir(f)
-    assert files_in_zip == {'empty.txt': {'date_time': datetime.datetime(2023, 12, 31, 12, 51, 2), 'length': 0, 'position': 0}}
+    assert files_in_zip == {'empty.txt': {'date_time': datetime.datetime(2023, 12, 31, 12, 51, 2), 'extra': {21589: {'mod_time': datetime.datetime(2023, 12, 31, 10, 51, 2)}, 30837: {'gid': 3, 'uid': 1000, 'version': 1}}, 'length': 0, 'position': 0}}
 
 
 @pytest.mark.parametrize('file_name,transport_client', testdata)
 def test_pretty_print_files(file_name, transport_client):
     with smart_open.open(file_name, 'rb', transport_params=dict(client=transport_client)) as f:
+        f.seek(find_central_dir(f), 0)
         files_in_zip = read_central_dir(f)
 
     # The aim is to resemble normal zip command output as closely as possible
@@ -170,4 +178,24 @@ def test_unzip_file_at_pos_streamout(file_name, transport_client):
 
     assert hashlib.md5( tome.getvalue() ).hexdigest() == '3ed2e1443a3ab185f972a09ed6147789'
     tome.close()
+
+
+# Tests for ZIP64 support ---------------------------------------------------
+
+
+def test_find_central_dir_direct_open_zip64():
+    '''Test to see if we can find the central dir for zip64 file'''
+    with open('test_data/test_big.zip','rb') as f:
+        assert find_central_dir(f) == 4312443080
+# Correct value can be found using: zipinfo -vh test_big.zip
+# The output is:
+#    The central directory is 97 (0000000000000061h) bytes long,
+#    and its (expected) offset in bytes from the beginning of the zipfile
+#    is 4312443080 (00000001010AA8C8h).
+
+
+# TODO missing tests
+# parse_endof_central_dir_record_zip64(s3_stream: io.BufferedIOBase) -> dict
+# parse_endof_central_dir_locator_zip64(s3_stream: io.BufferedIOBase) -> dict
+
 
